@@ -15,6 +15,11 @@ import (
 	"golang.org/x/text/encoding/charmap"
 )
 
+// essa eh a primeira coisa q fz em Go
+// codigo nao vai estar muito bom
+// talvez no futuro eu mude as coisas
+// so quero que isso funcione por enquanto, eu consiga fz deploy para server
+
 // Myjson corresponde ao tipo json do banco
 type Myjson struct {
 	User     string `json:"user"`
@@ -40,32 +45,99 @@ func (f Myfeed) print() {
 
 const url string = "http://www.fecea.br/"
 
+// getMany matriz com os valores na ordem de sqlQuery
+func getMany(db *sql.DB, sqlQuery string) [][]string {
+
+	var lstOut [][]string
+	rows, err := db.Query(sqlQuery)
+
+	if err != nil {
+		panic(err.Error()) // proper error handling instead of panic in your app
+	}
+
+	// Get column names
+	columns, err := rows.Columns()
+	if err != nil {
+		panic(err.Error()) // proper error handling instead of panic in your app
+	}
+
+	// Make a slice for the values
+	values := make([]sql.RawBytes, len(columns))
+
+	// rows.Scan wants '[]interface{}' as an argument, so we must copy the
+	// references into such a slice
+	// See http://code.google.com/p/go-wiki/wiki/InterfaceSlice for details
+	scanArgs := make([]interface{}, len(values))
+	for i := range values {
+		scanArgs[i] = &values[i]
+	}
+
+	// Fetch rows
+	for rows.Next() {
+		// get RawBytes from data
+		err = rows.Scan(scanArgs...)
+		if err != nil {
+			panic(err.Error()) // proper error handling instead of panic in your app
+		}
+
+		// Now do something with the data.
+		// Here we just print each column as a string.
+		var tmpLst []string
+		var value string
+		for _, col := range values {
+			// Here we can check if the value is nil (NULL value)
+			if col == nil {
+				value = "NULL"
+			} else {
+				value = string(col)
+			}
+			// fmt.Println(columns[i], ": ", value)
+			tmpLst = append(tmpLst, value)
+		}
+		lstOut = append(lstOut, tmpLst)
+
+	}
+	if err = rows.Err(); err != nil {
+		panic(err.Error()) // proper error handling instead of panic in your app
+	}
+
+	return lstOut
+}
+
 func checkError(err error) {
 	if err != nil {
 		panic(err.Error())
 	}
 }
 
-func feed() {
-	/*
-		  preciso: datade agora Y-m-d h:i:s
-				link do post,
-				link da img
-				texto
-	*/
+func bancoConfig() (string, error) {
 	raw, err := ioutil.ReadFile("./config/banco.json")
 	if err != nil {
-		fmt.Println(err.Error())
-		os.Exit(1)
+		return "", err
 	}
 
 	var c Myjson
 	json.Unmarshal(raw, &c)
-	//fmt.Println(c.Database)
 
 	confDb := "%s:%s@tcp(%s:3306)/%s"
 	confClear := fmt.Sprintf(confDb, c.User, c.Password, c.Host, c.Database)
-	// fmt.Println(confClear)
+
+	return confClear, nil
+}
+
+// atualizar inserir no banco
+func feed() {
+	/*
+	   preciso: datade agora Y-m-d h:i:s
+	     link do post,
+	     link da img
+	     texto
+	*/
+	confClear, err := bancoConfig()
+	if err != nil {
+		fmt.Println(err.Error())
+		os.Exit(1)
+	}
 
 	db, err := sql.Open("mysql", confClear)
 	if err != nil {
@@ -82,15 +154,30 @@ func feed() {
 	// exemplo de insert
 	// insertComm, err := db.Prepare("INSERT INTO `feed` VALUES (NULL, ?, ?, ?, ?)")
 	// if err != nil {
-	// 	panic(err.Error())
+	//   panic(err.Error())
 	// }
 	// defer insertComm.Close()
 	//
 	// _, err = insertComm.Exec(fkAgora, fkTexto, fkLinkImg, fkLink)
 	// if err != nil {
-	// 	panic(err.Error())
+	//   panic(err.Error())
 	// }
 
+	mysqlQuery := "SELECT * FROM feed"
+	sqlreps := getMany(db, mysqlQuery)
+
+	maxi := len(sqlreps)
+	maxj := len(sqlreps[0])
+	ix := 0
+	for ix < maxi {
+		jx := 0
+		for jx < maxj {
+			fmt.Print(sqlreps[ix][jx], "+++")
+			jx++
+		}
+		fmt.Println()
+		ix++
+	}
 	// select
 	// rows, err := db.Query("SELECT * FROM feed")
 	// if err != nil {
@@ -140,8 +227,16 @@ func feed() {
 	// 	panic(err.Error()) // proper error handling instead of panic in your app
 	// }
 
+	// criar objeto slice
+	// como se fosse um array
+	// lst := make([]Myfeed)
+	var lst []Myfeed
+	var ir = true
 	resp, perr := http.Get(url)
-	checkError(perr)
+	if perr != nil {
+		fmt.Println(perr.Error())
+		ir = false
+	}
 	defer resp.Body.Close()
 
 	stringPage := charmap.ISO8859_1.NewDecoder().Reader(resp.Body)
@@ -180,11 +275,28 @@ func feed() {
 			obj.texto = ""
 		}
 
-		obj.print()
-		fmt.Println("--------------------------------------")
+		lst = append(lst, obj)
 
 	})
 
+	if ir {
+		// insere no banco de dados
+		fmt.Println("--feed")
+		lstNomes := make([]string, len(lst))
+		i := 0
+		for i < len(lst) {
+			lstNomes[i] = lst[i].texto
+			i++
+		}
+
+		// tarefa
+		// lista para esses dois selects
+		// vou usar to sql_todos, na hora de excluir
+		// verificar se ha ocrrencia de uma string num array
+		// sql_todos = "SELECT * FROM `feed` ORDER BY `texto`"
+		// nome_todos = "SELECT `texto` FROM `feed` ORDER BY `texto`"
+
+	}
 }
 
 func main() {
