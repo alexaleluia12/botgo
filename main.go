@@ -7,12 +7,14 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
+	"golang.org/x/text/encoding/charmap"
+
 	"github.com/PuerkitoBio/goquery"
 	_ "github.com/go-sql-driver/mysql"
-	"golang.org/x/text/encoding/charmap"
 )
 
 // essa eh a primeira coisa q fz em Go
@@ -36,6 +38,11 @@ type Myfeed struct {
 	link    string
 }
 
+const url string = "http://www.fecea.br/"
+
+// ===============================
+// inicio funcoes auxiliares
+
 // print objeto legivel stdout
 func (f Myfeed) print() {
 	template := "linkImg = %s, link = %s, texto = %s, data = %s"
@@ -43,9 +50,7 @@ func (f Myfeed) print() {
 	fmt.Println(tbuild)
 }
 
-const url string = "http://www.fecea.br/"
-
-// getMany matriz com os valores na ordem de sqlQuery
+// getMany retorna matriz com os valores na ordem de sqlQuery
 func getMany(db *sql.DB, sqlQuery string) [][]string {
 
 	var lstOut [][]string
@@ -125,13 +130,88 @@ func bancoConfig() (string, error) {
 	return confClear, nil
 }
 
-// atualizar inserir no banco
+func inArray(alvo string, lst []string) bool {
+	for _, valor := range lst {
+		if valor == alvo {
+			return true
+		}
+	}
+
+	return false
+}
+
+func remover(db *sql.DB, sqlRemove string, lst [][]string) {
+	preRemove, err := db.Prepare(sqlRemove)
+	if err != nil {
+		fmt.Fprint(os.Stderr, err.Error())
+		return
+	}
+	defer preRemove.Close()
+
+	for _, v := range lst {
+
+		valor, _ := strconv.Atoi(v[0])
+		_, err := preRemove.Exec(valor)
+		if err != nil {
+			fmt.Fprint(os.Stderr, err.Error())
+			return
+		}
+	}
+
+}
+
+// inserirVazio sqlInsert deve ser parecido com "INSERT INTO `feed` VALUES (NULL, ?, ?, ?, ?)"
+func inserirVazio(db *sql.DB, sqlInsert string, lst [][]string) {
+	lstInterfaces := make([][]interface{}, len(lst))
+	for iv, v := range lst {
+		tmpi := make([]interface{}, len(v))
+		for i, k := range v {
+			tmpi[i] = k
+		}
+		lstInterfaces[iv] = tmpi
+	}
+
+	// eu acho q esse prepare eh uma vez so
+	insertComm, err := db.Prepare(sqlInsert)
+	if err != nil {
+		fmt.Fprint(os.Stderr, err.Error()+"\n")
+		return
+	}
+	defer insertComm.Close()
+
+	for _, iv := range lstInterfaces {
+		_, err = insertComm.Exec(iv...)
+		if err != nil {
+			fmt.Fprint(os.Stderr, err.Error()+"\n")
+			return
+		}
+	}
+}
+
+// MyfeedToArrString convert
+func MyfeedToArrString(m []Myfeed) [][]string {
+	tmpadd := make([][]string, len(m))
+	// elemento deve ser inseridos na msm ordem do insert
+	for i, v := range m {
+		tmparr := make([]string, 4) // quantide de atributos de Myfeed
+		tmparr[0] = v.data
+		tmparr[1] = v.texto
+		tmparr[2] = v.linkImg
+		tmparr[3] = v.link
+
+		tmpadd[i] = tmparr
+	}
+
+	return tmpadd
+}
+
+// fin funcoes auxiliares
+// ====================================
+
+// feed faz: atualizar inserir no banco
 func feed() {
 	/*
-	   preciso: datade agora Y-m-d h:i:s
-	     link do post,
-	     link da img
-	     texto
+	   casso ocora alguma falha nao pode parar tudo demo mostrar o log e a funcao deve retornar
 	*/
 	confClear, err := bancoConfig()
 	if err != nil {
@@ -141,95 +221,34 @@ func feed() {
 
 	db, err := sql.Open("mysql", confClear)
 	if err != nil {
-		panic(err.Error()) // Just for example purpose. You should use proper error handling instead of panic
+		fmt.Println(err.Error()) // Just for example purpose. You should use proper error handling instead of panic
+		os.Exit(1)
 	}
 	defer db.Close()
 
 	// fkAgora := "2017-04-10 20:38:03"
-	// fkTexto := "blabla traquileba abalalibdudu :D"
-	// fkLink := "fora do ar"
-	// fkLinkImg := "img fora do ar"
-
-	// quando for inserir tipo string nao precisa sercar de ''
-	// exemplo de insert
+	// fkTexto := "aaaalexxxx eh um cusao"
+	// fkLink := "fora do A R"
+	// fkLinkImg := "img fora do ar :kkkkjjkkjj"
+	//
+	// akteste := [4]string{fkAgora, fkTexto, fkLink, fkLinkImg}
+	// arin := make([]interface{}, len(akteste))
+	// for i, v := range akteste {
+	// 	arin[i] = v
+	// }
+	// // quando for inserir tipo string nao precisa sercar de ''
+	// // exemplo de insert
 	// insertComm, err := db.Prepare("INSERT INTO `feed` VALUES (NULL, ?, ?, ?, ?)")
 	// if err != nil {
-	//   panic(err.Error())
+	// 	panic(err.Error())
 	// }
 	// defer insertComm.Close()
 	//
-	// _, err = insertComm.Exec(fkAgora, fkTexto, fkLinkImg, fkLink)
+	// _, err = insertComm.Exec(arin...)
 	// if err != nil {
-	//   panic(err.Error())
+	// 	panic(err.Error())
 	// }
 
-	mysqlQuery := "SELECT * FROM feed"
-	sqlreps := getMany(db, mysqlQuery)
-
-	maxi := len(sqlreps)
-	maxj := len(sqlreps[0])
-	ix := 0
-	for ix < maxi {
-		jx := 0
-		for jx < maxj {
-			fmt.Print(sqlreps[ix][jx], "+++")
-			jx++
-		}
-		fmt.Println()
-		ix++
-	}
-	// select
-	// rows, err := db.Query("SELECT * FROM feed")
-	// if err != nil {
-	// 	panic(err.Error()) // proper error handling instead of panic in your app
-	// }
-	//
-	// // Get column names
-	// columns, err := rows.Columns()
-	// if err != nil {
-	// 	panic(err.Error()) // proper error handling instead of panic in your app
-	// }
-	//
-	// // Make a slice for the values
-	// values := make([]sql.RawBytes, len(columns))
-	//
-	// // rows.Scan wants '[]interface{}' as an argument, so we must copy the
-	// // references into such a slice
-	// // See http://code.google.com/p/go-wiki/wiki/InterfaceSlice for details
-	// scanArgs := make([]interface{}, len(values))
-	// for i := range values {
-	// 	scanArgs[i] = &values[i]
-	// }
-	//
-	// // Fetch rows
-	// for rows.Next() {
-	// 	// get RawBytes from data
-	// 	err = rows.Scan(scanArgs...)
-	// 	if err != nil {
-	// 		panic(err.Error()) // proper error handling instead of panic in your app
-	// 	}
-	//
-	// 	// Now do something with the data.
-	// 	// Here we just print each column as a string.
-	// 	var value string
-	// 	for i, col := range values {
-	// 		// Here we can check if the value is nil (NULL value)
-	// 		if col == nil {
-	// 			value = "NULL"
-	// 		} else {
-	// 			value = string(col)
-	// 		}
-	// 		fmt.Println(columns[i], ": ", value)
-	// 	}
-	// 	fmt.Println("-----------------------------------")
-	// }
-	// if err = rows.Err(); err != nil {
-	// 	panic(err.Error()) // proper error handling instead of panic in your app
-	// }
-
-	// criar objeto slice
-	// como se fosse um array
-	// lst := make([]Myfeed)
 	var lst []Myfeed
 	var ir = true
 	resp, perr := http.Get(url)
@@ -279,14 +298,56 @@ func feed() {
 
 	})
 
+	// apenas insere ou exclui nao atualiza
 	if ir {
-		// insere no banco de dados
+
 		fmt.Println("--feed")
-		lstNomes := make([]string, len(lst))
+		var lstRemover [][]string
+		var lstAdicionar []Myfeed
+
+		lstNomesPagina := make([]string, len(lst))
 		i := 0
 		for i < len(lst) {
-			lstNomes[i] = lst[i].texto
+			lstNomesPagina[i] = lst[i].texto
 			i++
+		}
+
+		sqlTodos := "SELECT * FROM `feed` ORDER BY `texto`"
+		lstTodos := getMany(db, sqlTodos)
+		var lstNomeTodosBanco []string
+		for _, valor := range lstTodos {
+			// contem apenas coluna texto
+			lstNomeTodosBanco = append(lstNomeTodosBanco, valor[2])
+		}
+
+		// novos elementos
+		for _, valor := range lst {
+			if !inArray(valor.texto, lstNomeTodosBanco) {
+				lstAdicionar = append(lstAdicionar, valor)
+			}
+		}
+
+		// elementos que serao excluidos
+		// lstRemover contem elementos do banco pq preciso da id deles para remover
+		for _, valor := range lstTodos {
+			if !inArray(valor[2], lstNomesPagina) {
+				lstRemover = append(lstRemover, valor)
+			}
+		}
+
+		if len(lstAdicionar) > 0 {
+			//convert Myfeed para []string
+			fmt.Println("novos", len(lstAdicionar))
+			tmpadd := MyfeedToArrString(lstAdicionar)
+			sqlInserir := "INSERT INTO `feed` VALUES (NULL, ?, ?, ?, ?)"
+			inserirVazio(db, sqlInserir, tmpadd)
+		}
+
+		if len(lstRemover) > 0 {
+			// codigo pra remover
+			fmt.Println("remover", len(lstRemover))
+			sqlRemover := "DELETE FROM `feed` WHERE id = ?"
+			remover(db, sqlRemover, lstRemover)
 		}
 
 		// tarefa
@@ -295,7 +356,7 @@ func feed() {
 		// verificar se ha ocrrencia de uma string num array
 		// sql_todos = "SELECT * FROM `feed` ORDER BY `texto`"
 		// nome_todos = "SELECT `texto` FROM `feed` ORDER BY `texto`"
-
+		//
 	}
 }
 
