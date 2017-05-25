@@ -17,6 +17,11 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
+// TODO
+// deixar getMany mais simples conforme
+//   https://astaxie.gitbooks.io/build-web-application-with-golang/en/05.2.html
+// usar decode uf8 sugerido pelo proprio goquery
+
 // essa eh a primeira coisa q fz em Go
 // codigo nao vai estar muito bom
 // talvez no futuro eu mude as coisas
@@ -39,6 +44,7 @@ type Myfeed struct {
 }
 
 const url string = "http://www.fecea.br/"
+const urlEvento string = "http://www.fecea.br/cursos/"
 
 // ===============================
 // inicio funcoes auxiliares
@@ -52,7 +58,7 @@ func (f Myfeed) print() {
 
 // getMany retorna matriz com os valores na ordem de sqlQuery
 func getMany(db *sql.DB, sqlQuery string) [][]string {
-
+	// quero mecher nesse cara esta muito complexo
 	var lstOut [][]string
 	rows, err := db.Query(sqlQuery)
 
@@ -143,7 +149,7 @@ func inArray(alvo string, lst []string) bool {
 func remover(db *sql.DB, sqlRemove string, lst [][]string) {
 	preRemove, err := db.Prepare(sqlRemove)
 	if err != nil {
-		fmt.Fprint(os.Stderr, err.Error())
+		fmt.Fprintln(os.Stderr, err.Error())
 		return
 	}
 	defer preRemove.Close()
@@ -174,7 +180,7 @@ func inserirVazio(db *sql.DB, sqlInsert string, lst [][]string) {
 	// eu acho q esse prepare eh uma vez so
 	insertComm, err := db.Prepare(sqlInsert)
 	if err != nil {
-		fmt.Fprint(os.Stderr, err.Error()+"\n")
+		fmt.Fprintln(os.Stderr, err.Error()+"\n")
 		return
 	}
 	defer insertComm.Close()
@@ -182,7 +188,7 @@ func inserirVazio(db *sql.DB, sqlInsert string, lst [][]string) {
 	for _, iv := range lstInterfaces {
 		_, err = insertComm.Exec(iv...)
 		if err != nil {
-			fmt.Fprint(os.Stderr, err.Error()+"\n")
+			fmt.Fprintln(os.Stderr, err.Error()+"\n")
 			return
 		}
 	}
@@ -215,45 +221,22 @@ func feed() {
 	*/
 	confClear, err := bancoConfig()
 	if err != nil {
-		fmt.Println(err.Error())
-		os.Exit(1)
+		fmt.Fprintln(os.Stderr, err.Error())
+		return
 	}
 
 	db, err := sql.Open("mysql", confClear)
 	if err != nil {
-		fmt.Println(err.Error()) // Just for example purpose. You should use proper error handling instead of panic
-		os.Exit(1)
+		fmt.Fprintln(os.Stderr, err.Error())
+		return
 	}
 	defer db.Close()
-
-	// fkAgora := "2017-04-10 20:38:03"
-	// fkTexto := "aaaalexxxx eh um cusao"
-	// fkLink := "fora do A R"
-	// fkLinkImg := "img fora do ar :kkkkjjkkjj"
-	//
-	// akteste := [4]string{fkAgora, fkTexto, fkLink, fkLinkImg}
-	// arin := make([]interface{}, len(akteste))
-	// for i, v := range akteste {
-	// 	arin[i] = v
-	// }
-	// // quando for inserir tipo string nao precisa sercar de ''
-	// // exemplo de insert
-	// insertComm, err := db.Prepare("INSERT INTO `feed` VALUES (NULL, ?, ?, ?, ?)")
-	// if err != nil {
-	// 	panic(err.Error())
-	// }
-	// defer insertComm.Close()
-	//
-	// _, err = insertComm.Exec(arin...)
-	// if err != nil {
-	// 	panic(err.Error())
-	// }
 
 	var lst []Myfeed
 	var ir = true
 	resp, perr := http.Get(url)
 	if perr != nil {
-		fmt.Println(perr.Error())
+		fmt.Fprintln(os.Stderr, perr.Error())
 		ir = false
 	}
 	defer resp.Body.Close()
@@ -350,20 +333,217 @@ func feed() {
 			remover(db, sqlRemover, lstRemover)
 		}
 
-		// tarefa
-		// lista para esses dois selects
-		// vou usar to sql_todos, na hora de excluir
-		// verificar se ha ocrrencia de uma string num array
-		// sql_todos = "SELECT * FROM `feed` ORDER BY `texto`"
-		// nome_todos = "SELECT `texto` FROM `feed` ORDER BY `texto`"
-		//
+	} else {
+		fmt.Println(url, " fora do ar")
 	}
+}
+
+func evento() {
+	/*
+		   casso ocora alguma falha nao pode parar tudo demo mostrar o log e a funcao deve retornar
+
+			 dados banco:
+			 id, data_inclusao, nome, inicio_inscricao, fim_inscricao, link, vagas
+
+			 curso que tiver vaga 0 sera excluido
+	*/
+	confClear, err := bancoConfig()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		return
+	}
+
+	db, err := sql.Open("mysql", confClear)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		return
+	}
+	defer db.Close()
+
+	// var lst []Myfeed
+	// var ir = true
+	resp, perr := http.Get(urlEvento)
+	if perr != nil {
+		fmt.Fprintln(os.Stderr, perr.Error())
+		// ir = false
+	}
+	defer resp.Body.Close()
+
+	stringPage := charmap.ISO8859_1.NewDecoder().Reader(resp.Body)
+	stringPage2, _ := ioutil.ReadAll(stringPage)
+
+	strReader := strings.NewReader(string(stringPage2))
+
+	doc, err := goquery.NewDocumentFromReader(strReader)
+	checkError(err)
+	agora := time.Now().Format("2006-01-02 15:04:05")
+	var inscricaoFull, vagas, nome, link string
+	seletor := "#conteudo > table:nth-child(1) > tbody:nth-child(1) > tr:nth-child(2) > td:nth-child(1) > table:nth-child(1) > tbody:nth-child(1) > tr:nth-child(1) > td:nth-child(1) > table:nth-child(5) > tbody:nth-child(1) > tr:nth-child(4) > td:nth-child(1) > table:nth-child(1) > tbody:nth-child(1) tr"
+	apartir := 2
+	doc.Find(seletor).Each(func(i int, s *goquery.Selection) {
+		/*
+
+					indice 0
+			<font size="2" face="Arial, Helvetica, sans-serif"><a href="index.php?p=5&amp;curso=194">Laboratório de Línguas: Facilitando e Desenvolvendo a Aprendizagem e Fluência da Língua Inglesa através do ensino da Gramática Básica</a></font>
+			============
+			indice 1
+
+			============
+			indice 2
+			<font face="Arial, Helvetica, sans-serif">18/05/2017 até 01/06/2017</font>
+			============
+			indice 3
+			<font face="Arial, Helvetica, sans-serif" color="#990000">Vagas Esgotadas</font>
+			============
+			indice 4
+			<font face="Arial, Helvetica, sans-serif">Isenta</font>
+
+		*/
+		if i >= apartir {
+			s.Find("td").Each(func(j int, s2 *goquery.Selection) {
+				// fmt.Println("indice", j)
+				// c, _ := s2.Html()
+				// fmt.Println(c)
+				// fmt.Println("============")
+
+				if j == 0 {
+					link, _ = s2.Find("a").Attr("href")
+					nome = s2.Find("a").Text()
+				} else if j == 2 {
+					inscricaoFull = s2.Text()
+				} else if j == 3 {
+					vagas = s2.Text()
+				}
+
+			})
+			fmt.Println("++++++++++++++")
+			fmt.Println("data =", agora, " nome =", nome, " link =", link, " inscricao =", inscricaoFull, " vagas =", vagas)
+			fmt.Println("**************")
+			// if i == 2 {
+			// 	fmt.Println(s.Html())
+			// 	// extranho q o tamho eh um acho q por isso ta dando esse pau
+			// 	// s.Siblings() // acho q esse fumega
+			// 	// fmt.Println("tamnho =", s.Length())
+			// 	// fmt.Println("irmaos len = ", s.Siblings().Length())
+			// 	// fmt.Println("======")
+			// 	// tmps := s.Eq(0)
+			//
+			// 	linkCurso, _ := s.Find("a").Attr("href")
+			// 	textoCruso := s.Find("a").Text()
+			//
+			// 	fmt.Println("link = ", linkCurso, "texto = ", textoCruso)
+			//
+			// 	// periodo de inscricao
+			// 	// strr, _ := tmps.Next().Html()
+			// 	//
+			// 	// inscricao, _ := s.Siblings().Eq(2).Html()
+			// 	// fmt.Println("inscricao =", inscricao)
+			//
+			// 	// numero vagas
+			// 	// vagas := irmaos.Eq(3).Find("font").Text()
+			// 	// fmt.Println("vagas =", vagas)
+			// }
+
+			/*
+				0 -> link com nome do curso e href com link do curso
+				1 -> vazio
+				2 -> periodo de inscreicao
+				3 -> numero vargas
+			*/
+			// fmt.Println("======")
+		}
+
+		// var obj Myfeed
+		// agora := time.Now().Format("2006-01-02 15:04:05")
+		// obj.data = agora
+		//
+		// longo, ok := s.Find("a").Attr("href")
+		// if ok {
+		// 	obj.link = longo
+		// } else {
+		// 	obj.link = ""
+		// }
+		//
+		// alvo := s.Find("img")
+		// longo, ok = alvo.Attr("src")
+		// if ok {
+		// 	obj.linkImg = url + longo
+		// } else {
+		// 	obj.linkImg = ""
+		// }
+		//
+		// longo, ok = alvo.Attr("alt")
+		// if ok {
+		// 	obj.texto = longo
+		// } else {
+		// 	obj.texto = ""
+		// }
+		//
+		// lst = append(lst, obj)
+
+	})
+
+	// apenas insere ou exclui nao atualiza
+	// if ir {
+	//
+	// 	fmt.Println("--feed")
+	// 	var lstRemover [][]string
+	// 	var lstAdicionar []Myfeed
+	//
+	// 	lstNomesPagina := make([]string, len(lst))
+	// 	i := 0
+	// 	for i < len(lst) {
+	// 		lstNomesPagina[i] = lst[i].texto
+	// 		i++
+	// 	}
+	//
+	// 	sqlTodos := "SELECT * FROM `feed` ORDER BY `texto`"
+	// 	lstTodos := getMany(db, sqlTodos)
+	// 	var lstNomeTodosBanco []string
+	// 	for _, valor := range lstTodos {
+	// 		// contem apenas coluna texto
+	// 		lstNomeTodosBanco = append(lstNomeTodosBanco, valor[2])
+	// 	}
+	//
+	// 	// novos elementos
+	// 	for _, valor := range lst {
+	// 		if !inArray(valor.texto, lstNomeTodosBanco) {
+	// 			lstAdicionar = append(lstAdicionar, valor)
+	// 		}
+	// 	}
+	//
+	// 	// elementos que serao excluidos
+	// 	// lstRemover contem elementos do banco pq preciso da id deles para remover
+	// 	for _, valor := range lstTodos {
+	// 		if !inArray(valor[2], lstNomesPagina) {
+	// 			lstRemover = append(lstRemover, valor)
+	// 		}
+	// 	}
+	//
+	// 	if len(lstAdicionar) > 0 {
+	// 		//convert Myfeed para []string
+	// 		fmt.Println("novos", len(lstAdicionar))
+	// 		tmpadd := MyfeedToArrString(lstAdicionar)
+	// 		sqlInserir := "INSERT INTO `feed` VALUES (NULL, ?, ?, ?, ?)"
+	// 		inserirVazio(db, sqlInserir, tmpadd)
+	// 	}
+	//
+	// 	if len(lstRemover) > 0 {
+	// 		// codigo pra remover
+	// 		fmt.Println("remover", len(lstRemover))
+	// 		sqlRemover := "DELETE FROM `feed` WHERE id = ?"
+	// 		remover(db, sqlRemover, lstRemover)
+	// 	}
+	//
+	// } else {
+	// 	fmt.Println(urlEvento, " fora do ar")
+	// }
 }
 
 func main() {
 
-	feed()
-
+	evento()
+	// feed()
 	// o conteudo nao esta em utf8
 	// acho q eh melchor comecar pelo arquivo
 	// outro cara para fz parse de html https://godoc.org/go.marzhillstudios.com/pkg/go-html-transform/html/transform
