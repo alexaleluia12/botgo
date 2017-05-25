@@ -146,7 +146,7 @@ func inArray(alvo string, lst []string) bool {
 	return false
 }
 
-func remover(db *sql.DB, sqlRemove string, lst [][]string) {
+func remover(db *sql.DB, sqlRemove string, lst [][]string, lstIndices []int) {
 	preRemove, err := db.Prepare(sqlRemove)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
@@ -154,9 +154,9 @@ func remover(db *sql.DB, sqlRemove string, lst [][]string) {
 	}
 	defer preRemove.Close()
 
-	for _, v := range lst {
+	for _, v := range lstIndices {
 
-		valor, _ := strconv.Atoi(v[0])
+		valor, _ := strconv.Atoi(lst[v][0])
 		_, err := preRemove.Exec(valor)
 		if err != nil {
 			fmt.Fprint(os.Stderr, err.Error())
@@ -167,15 +167,7 @@ func remover(db *sql.DB, sqlRemove string, lst [][]string) {
 }
 
 // inserirVazio sqlInsert deve ser parecido com "INSERT INTO `feed` VALUES (NULL, ?, ?, ?, ?)"
-func inserirVazio(db *sql.DB, sqlInsert string, lst [][]string) {
-	lstInterfaces := make([][]interface{}, len(lst))
-	for iv, v := range lst {
-		tmpi := make([]interface{}, len(v))
-		for i, k := range v {
-			tmpi[i] = k
-		}
-		lstInterfaces[iv] = tmpi
-	}
+func inserirVazio(db *sql.DB, sqlInsert string, lstInterfaces [][]interface{}, lstIndices []int) {
 
 	// eu acho q esse prepare eh uma vez so
 	insertComm, err := db.Prepare(sqlInsert)
@@ -185,8 +177,8 @@ func inserirVazio(db *sql.DB, sqlInsert string, lst [][]string) {
 	}
 	defer insertComm.Close()
 
-	for _, iv := range lstInterfaces {
-		_, err = insertComm.Exec(iv...)
+	for _, iv := range lstIndices {
+		_, err = insertComm.Exec(lstInterfaces[iv]...)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err.Error()+"\n")
 			return
@@ -211,13 +203,30 @@ func MyfeedToArrString(m []Myfeed) [][]string {
 	return tmpadd
 }
 
+func extrairDatas(entrada string) (string, string) {
+
+	ar := strings.Split(entrada, " ")
+	primeiro := ar[0]
+	ar2 := strings.Split(primeiro, "/")
+	strtemplate := "%s-%s-%s"
+	d1 := fmt.Sprintf(strtemplate, ar2[2], ar2[1], ar2[0])
+
+	segundo := ar[2]
+	ba := strings.Split(segundo, "/")
+	d2 := fmt.Sprintf(strtemplate, ba[2], ba[1], ba[0])
+
+	return d1, d2
+}
+
 // fin funcoes auxiliares
 // ====================================
 
 // feed faz: atualizar inserir no banco
 func feed() {
 	/*
-	   casso ocora alguma falha nao pode parar tudo demo mostrar o log e a funcao deve retornar
+		   casso ocora alguma falha nao pode parar tudo demo mostrar o log e a funcao deve retornar
+		ordem feed:
+		id, data_inclusao, texto, link_img, link
 	*/
 	confClear, err := bancoConfig()
 	if err != nil {
@@ -232,7 +241,7 @@ func feed() {
 	}
 	defer db.Close()
 
-	var lst []Myfeed
+	var lst [][]interface{}
 	var ir = true
 	resp, perr := http.Get(url)
 	if perr != nil {
@@ -276,8 +285,14 @@ func feed() {
 		} else {
 			obj.texto = ""
 		}
+		// id, data_inclusao, texto, link_img, link
+		tmpit := make([]interface{}, 4)
+		tmpit[0] = obj.data
+		tmpit[1] = obj.texto
+		tmpit[2] = obj.linkImg
+		tmpit[3] = obj.link
 
-		lst = append(lst, obj)
+		lst = append(lst, tmpit)
 
 	})
 
@@ -285,13 +300,13 @@ func feed() {
 	if ir {
 
 		fmt.Println("--feed")
-		var lstRemover [][]string
-		var lstAdicionar []Myfeed
+		var lstRemover []int
+		var lstAdicionar []int
 
 		lstNomesPagina := make([]string, len(lst))
 		i := 0
 		for i < len(lst) {
-			lstNomesPagina[i] = lst[i].texto
+			lstNomesPagina[i] = lst[i][1].(string)
 			i++
 		}
 
@@ -304,33 +319,31 @@ func feed() {
 		}
 
 		// novos elementos
-		for _, valor := range lst {
-			if !inArray(valor.texto, lstNomeTodosBanco) {
-				lstAdicionar = append(lstAdicionar, valor)
+		for i, valor := range lst {
+			if !inArray(valor[1].(string), lstNomeTodosBanco) {
+				lstAdicionar = append(lstAdicionar, i)
 			}
 		}
 
 		// elementos que serao excluidos
-		// lstRemover contem elementos do banco pq preciso da id deles para remover
-		for _, valor := range lstTodos {
+		for i, valor := range lstTodos {
 			if !inArray(valor[2], lstNomesPagina) {
-				lstRemover = append(lstRemover, valor)
+				lstRemover = append(lstRemover, i)
 			}
 		}
 
 		if len(lstAdicionar) > 0 {
 			//convert Myfeed para []string
 			fmt.Println("novos", len(lstAdicionar))
-			tmpadd := MyfeedToArrString(lstAdicionar)
 			sqlInserir := "INSERT INTO `feed` VALUES (NULL, ?, ?, ?, ?)"
-			inserirVazio(db, sqlInserir, tmpadd)
+			inserirVazio(db, sqlInserir, lst, lstAdicionar)
 		}
 
 		if len(lstRemover) > 0 {
 			// codigo pra remover
 			fmt.Println("remover", len(lstRemover))
 			sqlRemover := "DELETE FROM `feed` WHERE id = ?"
-			remover(db, sqlRemover, lstRemover)
+			remover(db, sqlRemover, lstTodos, lstRemover)
 		}
 
 	} else {
@@ -360,12 +373,11 @@ func evento() {
 	}
 	defer db.Close()
 
-	// var lst []Myfeed
-	// var ir = true
+	var ir = true
 	resp, perr := http.Get(urlEvento)
 	if perr != nil {
 		fmt.Fprintln(os.Stderr, perr.Error())
-		// ir = false
+		ir = false
 	}
 	defer resp.Body.Close()
 
@@ -377,6 +389,7 @@ func evento() {
 	doc, err := goquery.NewDocumentFromReader(strReader)
 	checkError(err)
 	agora := time.Now().Format("2006-01-02 15:04:05")
+	var dadosPagina [][]interface{}
 	var inscricaoFull, vagas, nome, link string
 	seletor := "#conteudo > table:nth-child(1) > tbody:nth-child(1) > tr:nth-child(2) > td:nth-child(1) > table:nth-child(1) > tbody:nth-child(1) > tr:nth-child(1) > td:nth-child(1) > table:nth-child(5) > tbody:nth-child(1) > tr:nth-child(4) > td:nth-child(1) > table:nth-child(1) > tbody:nth-child(1) tr"
 	apartir := 2
@@ -401,10 +414,12 @@ func evento() {
 		*/
 		if i >= apartir {
 			s.Find("td").Each(func(j int, s2 *goquery.Selection) {
-				// fmt.Println("indice", j)
-				// c, _ := s2.Html()
-				// fmt.Println(c)
-				// fmt.Println("============")
+				/*
+					0 -> link com nome do curso e href com link do curso
+					1 -> vazio
+					2 -> periodo de inscreicao
+					3 -> numero vargas
+				*/
 
 				if j == 0 {
 					link, _ = s2.Find("a").Attr("href")
@@ -416,133 +431,144 @@ func evento() {
 				}
 
 			})
-			fmt.Println("++++++++++++++")
-			fmt.Println("data =", agora, " nome =", nome, " link =", link, " inscricao =", inscricaoFull, " vagas =", vagas)
-			fmt.Println("**************")
-			// if i == 2 {
-			// 	fmt.Println(s.Html())
-			// 	// extranho q o tamho eh um acho q por isso ta dando esse pau
-			// 	// s.Siblings() // acho q esse fumega
-			// 	// fmt.Println("tamnho =", s.Length())
-			// 	// fmt.Println("irmaos len = ", s.Siblings().Length())
-			// 	// fmt.Println("======")
-			// 	// tmps := s.Eq(0)
-			//
-			// 	linkCurso, _ := s.Find("a").Attr("href")
-			// 	textoCruso := s.Find("a").Text()
-			//
-			// 	fmt.Println("link = ", linkCurso, "texto = ", textoCruso)
-			//
-			// 	// periodo de inscricao
-			// 	// strr, _ := tmps.Next().Html()
-			// 	//
-			// 	// inscricao, _ := s.Siblings().Eq(2).Html()
-			// 	// fmt.Println("inscricao =", inscricao)
-			//
-			// 	// numero vagas
-			// 	// vagas := irmaos.Eq(3).Find("font").Text()
-			// 	// fmt.Println("vagas =", vagas)
-			// }
+			// data_inclusao, nome, inicio_inscricao, fim_inscricao, link, vagas
+			tmpOjb := make([]interface{}, 6) // campos do banco de dados menos o id
+			d1, d2 := extrairDatas(inscricaoFull)
+			nvagas, er := strconv.Atoi(vagas)
+			if er != nil {
+				nvagas = 0
+			}
+			tmpOjb[0] = agora
+			tmpOjb[1] = nome
+			tmpOjb[2] = d1
+			tmpOjb[3] = d2
+			tmpOjb[4] = link
+			tmpOjb[5] = nvagas
+			// fmt.Println("++++++++++++++")
+			// fmt.Println("data =", agora, " nome =", nome, " link =", link, " inscricao =", inscricaoFull, " vagas =", vagas)
+			// fmt.Println("**************")
+			dadosPagina = append(dadosPagina, tmpOjb)
 
-			/*
-				0 -> link com nome do curso e href com link do curso
-				1 -> vazio
-				2 -> periodo de inscreicao
-				3 -> numero vargas
-			*/
-			// fmt.Println("======")
 		}
-
-		// var obj Myfeed
-		// agora := time.Now().Format("2006-01-02 15:04:05")
-		// obj.data = agora
-		//
-		// longo, ok := s.Find("a").Attr("href")
-		// if ok {
-		// 	obj.link = longo
-		// } else {
-		// 	obj.link = ""
-		// }
-		//
-		// alvo := s.Find("img")
-		// longo, ok = alvo.Attr("src")
-		// if ok {
-		// 	obj.linkImg = url + longo
-		// } else {
-		// 	obj.linkImg = ""
-		// }
-		//
-		// longo, ok = alvo.Attr("alt")
-		// if ok {
-		// 	obj.texto = longo
-		// } else {
-		// 	obj.texto = ""
-		// }
-		//
-		// lst = append(lst, obj)
 
 	})
 
-	// apenas insere ou exclui nao atualiza
-	// if ir {
-	//
-	// 	fmt.Println("--feed")
-	// 	var lstRemover [][]string
-	// 	var lstAdicionar []Myfeed
-	//
-	// 	lstNomesPagina := make([]string, len(lst))
-	// 	i := 0
-	// 	for i < len(lst) {
-	// 		lstNomesPagina[i] = lst[i].texto
-	// 		i++
-	// 	}
-	//
-	// 	sqlTodos := "SELECT * FROM `feed` ORDER BY `texto`"
-	// 	lstTodos := getMany(db, sqlTodos)
-	// 	var lstNomeTodosBanco []string
-	// 	for _, valor := range lstTodos {
-	// 		// contem apenas coluna texto
-	// 		lstNomeTodosBanco = append(lstNomeTodosBanco, valor[2])
-	// 	}
-	//
-	// 	// novos elementos
-	// 	for _, valor := range lst {
-	// 		if !inArray(valor.texto, lstNomeTodosBanco) {
-	// 			lstAdicionar = append(lstAdicionar, valor)
-	// 		}
-	// 	}
-	//
-	// 	// elementos que serao excluidos
-	// 	// lstRemover contem elementos do banco pq preciso da id deles para remover
-	// 	for _, valor := range lstTodos {
-	// 		if !inArray(valor[2], lstNomesPagina) {
-	// 			lstRemover = append(lstRemover, valor)
-	// 		}
-	// 	}
-	//
-	// 	if len(lstAdicionar) > 0 {
-	// 		//convert Myfeed para []string
-	// 		fmt.Println("novos", len(lstAdicionar))
-	// 		tmpadd := MyfeedToArrString(lstAdicionar)
-	// 		sqlInserir := "INSERT INTO `feed` VALUES (NULL, ?, ?, ?, ?)"
-	// 		inserirVazio(db, sqlInserir, tmpadd)
-	// 	}
-	//
-	// 	if len(lstRemover) > 0 {
-	// 		// codigo pra remover
-	// 		fmt.Println("remover", len(lstRemover))
-	// 		sqlRemover := "DELETE FROM `feed` WHERE id = ?"
-	// 		remover(db, sqlRemover, lstRemover)
-	// 	}
-	//
-	// } else {
-	// 	fmt.Println(urlEvento, " fora do ar")
-	// }
+	// atualiza, exclui, insere
+	if ir {
+
+		fmt.Println("--evento")
+		// esse esquema on array de int usar no feed
+		// eh concerteza mais eficiente
+		var lstAdicionar []int
+		var lstAtualizar []int
+		var lstRemover []int
+		var lstExcluirNome []string
+
+		lstNomesPagina := make([]string, len(dadosPagina))
+		i := 0
+		for i < len(dadosPagina) {
+			lstNomesPagina[i] = dadosPagina[i][1].(string)
+			i++
+		}
+		// id, data_inclusao, nome, inicio_inscricao, fim_inscricao, link, vagas
+
+		sqlTodos := "SELECT * FROM `feed` ORDER BY `texto`"
+		lstTodos := getMany(db, sqlTodos)
+		var lstNomeTodosBanco []string
+		for _, valor := range lstTodos {
+			// contem apenas coluna texto
+			lstNomeTodosBanco = append(lstNomeTodosBanco, valor[2])
+		}
+
+		nomeConectID := make(map[string]int)
+		nomeConectIndice := make(map[string]int)
+		for i, valor := range lstTodos {
+			vi, _ := strconv.Atoi(valor[0])
+			nomeConectID[valor[2]] = vi
+			nomeConectIndice[valor[2]] = i
+		}
+
+		// novos, update
+		for i, valor := range lstNomesPagina {
+			if inArray(valor, lstNomeTodosBanco) {
+				qnt := dadosPagina[i][5].(int)
+				if qnt > 0 {
+					lstAtualizar = append(lstAtualizar, i)
+				} else {
+					lstExcluirNome = append(lstExcluirNome, valor)
+				}
+
+			} else {
+				lstAdicionar = append(lstAdicionar, i)
+			}
+		}
+
+		// remover
+		for i, valor := range lstTodos {
+			if !inArray(valor[2], lstNomesPagina) {
+				lstRemover = append(lstRemover, i)
+			}
+		}
+
+		if len(lstRemover) > 0 {
+			var quantideExcluir = len(lstRemover)
+			if len(lstExcluirNome) > 0 {
+				quantideExcluir += len(lstExcluirNome)
+			}
+			fmt.Println("remover", quantideExcluir)
+			for _, v := range lstExcluirNome {
+				lstRemover = append(lstRemover, nomeConectIndice[v])
+			}
+			sqlRemover := "DELETE FROM `evento` WHERE id = ?"
+			remover(db, sqlRemover, lstTodos, lstRemover)
+		}
+
+		if len(lstAdicionar) > 0 {
+			fmt.Println("novos", len(lstAdicionar))
+
+			sqlInsert := "INSERT INTO `evento` VALUES (NULL, ?, ?, ?, ?, ?, ?)"
+			inserirVazio(db, sqlInsert, dadosPagina, lstAdicionar)
+		}
+
+		if len(lstAtualizar) > 0 {
+			fmt.Println("atualiza", len(lstAdicionar))
+
+			sqlUpdate := "UPDATE `evento` SET `inicio_inscricao`=?" +
+				", `fim_inscricao`=?, `link`=?, `vagas`=?" +
+				" WHERE `id`=?"
+
+			// tenho q alterar a lista de interface, deve ter (nessa ordem)
+			// inicio_inscricao, fim_inscricao, link, vagas, id
+			// **data_inclusao, nome, inicio_inscricao, fim_inscricao, link, vagas
+			//     0             1         2               3            4      5
+			itInsert := make([][]interface{}, len(dadosPagina))
+			for _, valor := range dadosPagina {
+				tmpi := make([]interface{}, 5)
+				tmpi[0] = valor[2]                        // inicio_inscricao
+				tmpi[1] = valor[3]                        // fim_inscricao
+				tmpi[2] = valor[4]                        // link
+				tmpi[3] = valor[5]                        // vagas
+				tmpi[4] = nomeConectID[valor[1].(string)] // id(no banco de dados)
+
+				itInsert = append(itInsert, tmpi)
+			}
+
+			// geral o suficiente para se usado no update tmb
+			inserirVazio(db, sqlUpdate, itInsert, lstAtualizar)
+		}
+
+	} else {
+		fmt.Println(urlEvento, " fora do ar")
+	}
 }
 
 func main() {
 
 	evento()
+
+	// primeiro := ar[0]
+	// segundo := ar[2]
+	//
 	// feed()
 	// o conteudo nao esta em utf8
 	// acho q eh melchor comecar pelo arquivo
