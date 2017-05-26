@@ -11,16 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/text/encoding/charmap"
-
 	"github.com/PuerkitoBio/goquery"
+	"github.com/djimenez/iconv-go"
 	_ "github.com/go-sql-driver/mysql"
 )
 
 // TODO
-// deixar getMany mais simples conforme
-//   https://astaxie.gitbooks.io/build-web-application-with-golang/en/05.2.html
-// usar decode uf8 sugerido pelo proprio goquery
 
 // essa eh a primeira coisa q fz em Go
 // codigo nao vai estar muito bom
@@ -251,13 +247,17 @@ func feed() {
 	}
 	defer resp.Body.Close()
 
-	stringPage := charmap.ISO8859_1.NewDecoder().Reader(resp.Body)
-	stringPage2, _ := ioutil.ReadAll(stringPage)
+	utfDocumento, err := iconv.NewReader(resp.Body, "latin1", "utf-8")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		return
+	}
 
-	strReader := strings.NewReader(string(stringPage2))
-
-	doc, err := goquery.NewDocumentFromReader(strReader)
-	checkError(err)
+	doc, err := goquery.NewDocumentFromReader(utfDocumento)
+	if err != nil {
+		fmt.Fprint(os.Stderr, err.Error())
+		return
+	}
 
 	seletor := "#main-area-1 > ul:nth-child(1) li"
 	doc.Find(seletor).Each(func(i int, s *goquery.Selection) {
@@ -382,13 +382,18 @@ func evento() {
 	}
 	defer resp.Body.Close()
 
-	stringPage := charmap.ISO8859_1.NewDecoder().Reader(resp.Body)
-	stringPage2, _ := ioutil.ReadAll(stringPage)
+	utfDocumento, err := iconv.NewReader(resp.Body, "latin1", "utf-8")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		return
+	}
 
-	strReader := strings.NewReader(string(stringPage2))
+	doc, err := goquery.NewDocumentFromReader(utfDocumento)
+	if err != nil {
+		fmt.Fprint(os.Stderr, err.Error())
+		return
+	}
 
-	doc, err := goquery.NewDocumentFromReader(strReader)
-	checkError(err)
 	agora := time.Now().Format("2006-01-02 15:04:05")
 	var dadosPagina [][]interface{}
 	var inscricaoFull, vagas, nome, link string
