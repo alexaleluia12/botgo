@@ -511,7 +511,7 @@ func evento() {
 			}
 		}
 
-		if len(lstRemover) > 0 {
+		if len(lstRemover) > 0 || len(lstExcluirNome) > 0 {
 			var quantideExcluir = len(lstRemover)
 			if len(lstExcluirNome) > 0 {
 				quantideExcluir += len(lstExcluirNome)
