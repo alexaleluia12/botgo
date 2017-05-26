@@ -178,6 +178,7 @@ func inserirVazio(db *sql.DB, sqlInsert string, lstInterfaces [][]interface{}, l
 	defer insertComm.Close()
 
 	for _, iv := range lstIndices {
+
 		_, err = insertComm.Exec(lstInterfaces[iv]...)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err.Error()+"\n")
@@ -472,7 +473,7 @@ func evento() {
 		}
 		// id, data_inclusao, nome, inicio_inscricao, fim_inscricao, link, vagas
 
-		sqlTodos := "SELECT * FROM `feed` ORDER BY `texto`"
+		sqlTodos := "SELECT * FROM `evento`"
 		lstTodos := getMany(db, sqlTodos)
 		var lstNomeTodosBanco []string
 		for _, valor := range lstTodos {
@@ -531,7 +532,7 @@ func evento() {
 		}
 
 		if len(lstAtualizar) > 0 {
-			fmt.Println("atualiza", len(lstAdicionar))
+			fmt.Println("atualiza", len(lstAtualizar))
 
 			sqlUpdate := "UPDATE `evento` SET `inicio_inscricao`=?" +
 				", `fim_inscricao`=?, `link`=?, `vagas`=?" +
@@ -542,7 +543,7 @@ func evento() {
 			// **data_inclusao, nome, inicio_inscricao, fim_inscricao, link, vagas
 			//     0             1         2               3            4      5
 			itInsert := make([][]interface{}, len(dadosPagina))
-			for _, valor := range dadosPagina {
+			for j, valor := range dadosPagina {
 				tmpi := make([]interface{}, 5)
 				tmpi[0] = valor[2]                        // inicio_inscricao
 				tmpi[1] = valor[3]                        // fim_inscricao
@@ -550,7 +551,7 @@ func evento() {
 				tmpi[3] = valor[5]                        // vagas
 				tmpi[4] = nomeConectID[valor[1].(string)] // id(no banco de dados)
 
-				itInsert = append(itInsert, tmpi)
+				itInsert[j] = tmpi
 			}
 
 			// geral o suficiente para se usado no update tmb
