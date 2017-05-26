@@ -491,8 +491,9 @@ func evento() {
 
 		// novos, update
 		for i, valor := range lstNomesPagina {
+			qnt := dadosPagina[i][5].(int)
 			if inArray(valor, lstNomeTodosBanco) {
-				qnt := dadosPagina[i][5].(int)
+
 				if qnt > 0 {
 					lstAtualizar = append(lstAtualizar, i)
 				} else {
@@ -500,7 +501,9 @@ func evento() {
 				}
 
 			} else {
-				lstAdicionar = append(lstAdicionar, i)
+				if qnt > 0 {
+					lstAdicionar = append(lstAdicionar, i)
+				}
 			}
 		}
 
@@ -567,39 +570,6 @@ func main() {
 
 	evento()
 
-	// primeiro := ar[0]
-	// segundo := ar[2]
-	//
-	// feed()
-	// o conteudo nao esta em utf8
-	// acho q eh melchor comecar pelo arquivo
-	// outro cara para fz parse de html https://godoc.org/go.marzhillstudios.com/pkg/go-html-transform/html/transform
-	// resp, _ := http.Get("http://www.fecea.br/")
-	// // bytes, _ := ioutil.ReadAll(resp.Body)
-	// stringPage := charmap.ISO8859_1.NewDecoder().Reader(resp.Body)
-	// stringPage2, _ := ioutil.ReadAll(stringPage)
-	// fmt.Println("HTML:\n\n", string(stringPage2))
-	//
-	// resp.Body.Close()
-
-	// --- Encoding: convert s from UTF-8 to ShiftJIS
-	// declare a bytes.Buffer b and an encoder which will write into this buffer
-	// var b bytes.Buffer
-	// wInUTF8 := transform.NewWriter(&b, japanese.ShiftJIS.NewEncoder())
-	// // encode our string
-	// wInUTF8.Write([]byte(s))
-	// wInUTF8.Close()
-	// // print the encoded bytes
-	// fmt.Printf("%#v\n", b)
-	// encS := b.String()
-	// fmt.Println(encS)
-	//
-	// // --- Decoding: convert encS from ShiftJIS to UTF8
-	// // declare a decoder which reads from the string we have just encoded
-	// rInUTF8 := transform.NewReader(strings.NewReader(encS), japanese.ShiftJIS.NewDecoder())
-	// // decode our string
-	// decBytes, _ := ioutil.ReadAll(rInUTF8)
-	// decS := string(decBytes)
-	// fmt.Println(decS)
+	feed()
 
 }
